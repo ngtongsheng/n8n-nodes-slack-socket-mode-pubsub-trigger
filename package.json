@@ -1,6 +1,6 @@
 {
 	"name": "@ngtongsheng/n8n-nodes-slack-socket-mode-pubsub-trigger",
-	"version": "0.1.3",
+	"version": "0.1.4",
 	"description": "Experimental Slack socket mode trigger node using simple pubsub pattern.",
 	"keywords": [
 		"n8n",
