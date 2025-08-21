@@ -1,0 +1,62 @@
+{
+	"name": "@ngtongsheng/n8n-nodes-slack-socket-mode-pubsub-trigger",
+	"version": "0.1.0",
+	"description": "Experimental Slack socket mode trigger node using simple pubsub pattern.",
+	"keywords": [
+		"n8n",
+		"n8n-community-node-package",
+		"slack",
+		"socket-mode",
+		"pubsub"
+	],
+	"homepage": "https://github.com/ngtongsheng/n8n-nodes-slack-socket-mode-pubsub-trigger#readme",
+	"bugs": {
+		"url": "https://github.com/ngtongsheng/n8n-nodes-slack-socket-mode-pubsub-trigger/issues"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/ngtongsheng/n8n-nodes-slack-socket-mode-pubsub-trigger.git"
+	},
+	"license": "MIT",
+	"author": {
+		"name": "Ng Tong Sheng"
+	},
+	"type": "commonjs",
+	"main": "dist/index.js",
+	"files": [
+		"dist"
+	],
+	"scripts": {
+		"build": "rm -rf dist && tsc && cp -r nodes/SlackSocketModeTrigger/assets dist/nodes/SlackSocketModeTrigger/ && cp -r credentials/assets dist/credentials/",
+		"dev": "tsc --watch",
+		"format": "biome format --write nodes credentials package.json",
+		"lint": "biome lint nodes credentials package.json",
+		"lintfix": "biome lint --write nodes credentials package.json",
+		"check": "biome check --write nodes credentials package.json",
+		"prepublishOnly": "bun run build && bun run check"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.2.0",
+		"typescript": "^5.9.2"
+	},
+	"peerDependencies": {
+		"n8n-workflow": "^1.17.0"
+	},
+	"engines": {
+		"node": ">=18.10",
+		"bun": ">=1.0.0"
+	},
+	"packageManager": "bun@1.2.13",
+	"n8n": {
+		"n8nNodesApiVersion": 1,
+		"credentials": [
+			"dist/credentials/SlackSocketModeCredential.credentials.js"
+		],
+		"nodes": [
+			"dist/nodes/SlackSocketModeTrigger/SlackSocketModeTrigger.node.js"
+		]
+	},
+	"dependencies": {
+		"@slack/bolt": "^4.4.0"
+	}
+}
