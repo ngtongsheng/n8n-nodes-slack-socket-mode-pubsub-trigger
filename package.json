@@ -46,7 +46,7 @@
 		"node": ">=18.10",
 		"bun": ">=1.0.0"
 	},
-	"packageManager": "bun@1.2.13",
+	"packageManager": "bun@1.2.20",
 	"n8n": {
 		"n8nNodesApiVersion": 1,
 		"credentials": [
