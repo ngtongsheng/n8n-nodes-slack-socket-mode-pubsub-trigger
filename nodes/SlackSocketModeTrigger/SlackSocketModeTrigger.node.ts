@@ -127,6 +127,57 @@ namespace SlackSocketConnectionManager {
 			slackApp = activeSlackApp.app;
 		}
 
+		if (activeSlackApp) {
+			return;
+		}
+
+		slackApp.message(async ({ body, payload, context, event }) => {
+			try {
+				const slackEventData = event as unknown as SlackEventData;
+
+				for (const subscriber of currentSlackApp.subscribers) {
+					if (!subscriber.shouldAllowBotMessages) {
+						if (
+							slackEventData.subtype === 'bot_message' ||
+							slackEventData.subtype === 'message_changed'
+						) {
+							continue;
+						}
+					}
+
+					// Check channel filtering
+					if (subscriber.watchedChannelIds.length > 0) {
+						if (
+							!slackEventData.channel ||
+							!subscriber.watchedChannelIds.includes(slackEventData.channel)
+						) {
+							continue;
+						}
+					}
+
+					if (subscriber.messageFilterPattern) {
+						const regex = getCachedRegex(subscriber.messageFilterPattern);
+						if (!regex?.test(slackEventData.text || '')) {
+							continue;
+						}
+					}
+
+					try {
+						subscriber.emit({
+							body: body as IDataObject,
+							payload: payload as unknown as IDataObject,
+							context: context as IDataObject,
+							event: event as unknown as IDataObject,
+						});
+					} catch (error) {
+						console.error('Error emitting message event to subscriber:', error);
+					}
+				}
+			} catch (error) {
+				console.error('Error handling Slack message event:', error);
+			}
+		});
+
 		// Helper function for non-message events
 		const handleSlackEvent = (eventType: string) => {
 			return async ({
@@ -177,57 +228,6 @@ namespace SlackSocketConnectionManager {
 				}
 			};
 		};
-
-		if (activeSlackApp) {
-			return;
-		}
-
-		slackApp.message(async ({ body, payload, context, event }) => {
-			try {
-				const slackEventData = event as unknown as SlackEventData;
-
-				for (const subscriber of currentSlackApp.subscribers) {
-					if (!subscriber.shouldAllowBotMessages) {
-						if (
-							slackEventData.subtype === 'bot_message' ||
-							slackEventData.subtype === 'message_changed'
-						) {
-							continue;
-						}
-					}
-
-					if (subscriber.messageFilterPattern) {
-						const regex = getCachedRegex(subscriber.messageFilterPattern);
-						if (!regex?.test(slackEventData.text || '')) {
-							continue;
-						}
-					}
-
-					// Check channel filtering
-					if (subscriber.watchedChannelIds.length > 0) {
-						if (
-							!slackEventData.channel ||
-							!subscriber.watchedChannelIds.includes(slackEventData.channel)
-						) {
-							continue;
-						}
-					}
-
-					try {
-						subscriber.emit({
-							body: body as IDataObject,
-							payload: payload as unknown as IDataObject,
-							context: context as IDataObject,
-							event: event as unknown as IDataObject,
-						});
-					} catch (error) {
-						console.error('Error emitting message event to subscriber:', error);
-					}
-				}
-			} catch (error) {
-				console.error('Error handling Slack message event:', error);
-			}
-		});
 
 		slackApp.event('app_mention', handleSlackEvent('app_mention'));
 		slackApp.event('reaction_added', handleSlackEvent('reaction_added'));
