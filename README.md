@@ -96,6 +96,12 @@ Before using this node, you need to create a Slack app with Socket Mode enabled:
      - `message.groups` - Messages in private channels
      - `reaction_added` - When reactions are added to messages
 
+6. **Configure Interactive Components (for Action events)**
+   - Go to "Interactivity & Shortcuts" in the left sidebar
+   - Enable "Interactivity"
+   - Socket Mode will handle the interactions automatically
+   - No Request URL needed when using Socket Mode
+
 ## Credentials
 
 Create a new credential of type "Slack Socket Mode Credential" with:
@@ -112,6 +118,7 @@ The Slack Socket Mode Trigger node provides the following configuration options:
 - **Message**: Triggers when messages are sent to channels
 - **App Mention**: Triggers when your bot is mentioned (@your_bot_name)
 - **Reaction Added**: Triggers when emoji reactions are added to messages
+- **Action**: Triggers when interactive actions are performed (buttons, select menus, etc.)
 
 ### Channel Filtering
 - **Channels to Watch**: Select specific channels to monitor
@@ -122,6 +129,11 @@ The Slack Socket Mode Trigger node provides the following configuration options:
 - **Message Filter**: Optional regex pattern to filter messages
 - **Allow Bot Messages**: Include/exclude messages from bots and message updates
 - By default, bot messages and message changes are filtered out
+
+### Action Filtering (Action events only)
+- **Action ID**: Optional action ID to filter specific interactive actions
+- Leave empty to listen to all action types
+- Useful for targeting specific buttons or interactive components
 
 ## Supported Events
 
@@ -140,6 +152,12 @@ The Slack Socket Mode Trigger node provides the following configuration options:
 - Triggers when emoji reactions are added to messages
 - Provides reaction details including emoji type and user
 - Works on messages in monitored channels
+
+### Action Events
+- Triggers when users interact with buttons, select menus, or other interactive components
+- Supports filtering by specific Action ID for targeted responses
+- Provides full action context including user, channel, and interaction details
+- Works with Slack's Block Kit interactive elements
 
 ## Advanced Features
 
@@ -199,6 +217,14 @@ The pub-sub pattern ensures **guaranteed message delivery** to all subscribers w
 - **Trigger**: Messages in specific channels only
 - **IF**: Check message content or user
 - **Actions**: Perform different actions based on conditions
+
+### 5. Interactive Button Handler
+```
+[Slack Socket Mode Trigger] → [Switch] → [Slack]
+```
+- **Trigger**: Action events with specific Action ID filtering
+- **Switch**: Route based on button action ID or interaction type
+- **Slack**: Send contextual responses or update messages
 
 ## Development
 
