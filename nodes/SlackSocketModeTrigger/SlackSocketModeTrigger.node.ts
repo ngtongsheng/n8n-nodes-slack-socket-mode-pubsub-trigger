@@ -35,10 +35,11 @@ interface SlackEventData {
 }
 
 interface Subscriber {
-	triggerEvents: string[];
+	triggerEvent: string;
 	watchedChannelIds: string[];
 	messageFilterPattern?: string;
 	shouldAllowBotMessages?: boolean;
+	actionId?: string;
 	nodeId: string;
 	workflowId?: string;
 	botToken: string;
@@ -136,6 +137,11 @@ namespace SlackSocketConnectionManager {
 				const slackEventData = event as unknown as SlackEventData;
 
 				for (const subscriber of currentSlackApp.subscribers) {
+					// Check if subscriber listens to message events
+					if (subscriber.triggerEvent !== 'message') {
+						continue;
+					}
+
 					if (!subscriber.shouldAllowBotMessages) {
 						if (
 							slackEventData.subtype === 'bot_message' ||
@@ -196,7 +202,7 @@ namespace SlackSocketConnectionManager {
 				try {
 					for (const subscriber of subscribers) {
 						// Check if subscriber listens to this event type
-						if (!subscriber.triggerEvents.includes(eventType)) {
+						if (subscriber.triggerEvent !== eventType) {
 							continue;
 						}
 
@@ -231,6 +237,45 @@ namespace SlackSocketConnectionManager {
 
 		slackApp.event('app_mention', handleSlackEvent('app_mention'));
 		slackApp.event('reaction_added', handleSlackEvent('reaction_added'));
+
+		slackApp.action(/.+/, async ({ body, payload, context, action }) => {
+			try {
+				for (const subscriber of currentSlackApp.subscribers) {
+					// Check if subscriber listens to action events
+					if (subscriber.triggerEvent !== 'action') {
+						continue;
+					}
+					// Check channel filtering for actions
+					if (subscriber.watchedChannelIds.length > 0) {
+						const targetChannelId = body?.channel?.id;
+						if (!targetChannelId || !subscriber.watchedChannelIds.includes(targetChannelId)) {
+							continue;
+						}
+					}
+
+					// Check action ID filtering
+					if (subscriber.actionId && subscriber.actionId.trim() !== '') {
+						const actionId = action.type;
+						if (!actionId || actionId !== subscriber.actionId) {
+							continue;
+						}
+					}
+
+					try {
+						subscriber.emit({
+							body,
+							payload,
+							context,
+							action,
+						});
+					} catch (error) {
+						console.error('Error emitting action event to subscriber:', error);
+					}
+				}
+			} catch (error) {
+				console.error('Error handling Slack action event:', error);
+			}
+		});
 
 		await slackApp.start();
 	}
@@ -303,7 +348,7 @@ export class SlackSocketModeTrigger implements INodeType {
 			{
 				displayName: 'Trigger On',
 				name: 'trigger',
-				type: 'multiOptions',
+				type: 'options',
 				options: [
 					{
 						name: 'Message',
@@ -320,8 +365,13 @@ export class SlackSocketModeTrigger implements INodeType {
 						value: 'reaction_added',
 						description: 'When a reaction is added to a message',
 					},
+					{
+						name: 'Action',
+						value: 'action',
+						description: 'When an interactive action is triggered (buttons, select menus, etc.)',
+					},
 				],
-				default: ['message'],
+				default: 'message',
 				required: true,
 			},
 			{
@@ -363,28 +413,44 @@ export class SlackSocketModeTrigger implements INodeType {
 					},
 				},
 			},
+			{
+				displayName: 'Action ID (Optional)',
+				name: 'actionId',
+				type: 'string',
+				default: '',
+				placeholder: 'Enter action ID or leave empty for all actions',
+				description:
+					'Optional action ID to filter specific interactive actions. Leave empty to listen to all action IDs.',
+				displayOptions: {
+					show: {
+						trigger: ['action'],
+					},
+				},
+			},
 		],
 	};
 
 	async trigger(this: ITriggerFunctions): Promise<ITriggerResponse> {
 		const credentials = (await this.getCredentials('slackSocketModeCredential')) as SlackCredential;
-		const triggerEvents = this.getNodeParameter('trigger', []) as string[];
+		const triggerEvent = this.getNodeParameter('trigger', 'message') as string;
 		const watchedChannelIds = this.getNodeParameter('channelsToWatch', []) as string[];
 		const messageFilterPattern = this.getNodeParameter('messageFilter', '') as string;
 		const shouldAllowBotMessages = this.getNodeParameter('allowBotMessages', false) as boolean;
+		const actionId = this.getNodeParameter('actionId', '') as string;
 
-		if (!triggerEvents || triggerEvents.length === 0) {
-			throw new Error('At least one trigger event must be selected');
+		if (!triggerEvent) {
+			throw new Error('A trigger event must be selected');
 		}
 
 		if (!subscribers.some((subscriber) => subscriber.nodeId === this.getNode().id)) {
 			subscribers.push({
 				workflowId: this.getWorkflow().id,
 				nodeId: this.getNode().id,
-				triggerEvents: triggerEvents,
+				triggerEvent: triggerEvent,
 				watchedChannelIds: watchedChannelIds,
 				messageFilterPattern: messageFilterPattern,
 				shouldAllowBotMessages: shouldAllowBotMessages,
+				actionId: actionId,
 				botToken: credentials.botToken,
 				emit: (data) => this.emit([this.helpers.returnJsonArray(data)]),
 			});
