@@ -82,6 +82,8 @@ namespace SlackSocketConnectionManager {
 	const activeSlackApps: {
 		stop: () => Promise<void>;
 		botToken: string;
+		app: App;
+		subscribers: Subscriber[];
 	}[] = [];
 
 	export function getActiveSlackApps() {
@@ -89,23 +91,41 @@ namespace SlackSocketConnectionManager {
 	}
 
 	export async function startSlackSocketConnection(credentials: SlackCredential) {
-		if (activeSlackApps.find((slackApp) => slackApp.botToken === credentials.botToken)) {
-			return Promise.resolve();
+		const activeSlackApp = activeSlackApps.find(
+			(slackApp) => slackApp.botToken === credentials.botToken,
+		);
+
+		let currentSlackApp: (typeof activeSlackApps)[number];
+		let slackApp: App;
+
+		if (!activeSlackApp) {
+			slackApp = new App({
+				token: credentials.botToken,
+				signingSecret: credentials.signingSecret,
+				appToken: credentials.appToken,
+				socketMode: true,
+			});
+
+			currentSlackApp = {
+				stop: async () => {
+					await slackApp.stop();
+				},
+				botToken: credentials.botToken,
+				app: slackApp,
+				subscribers: subscribers.filter(
+					(subscriber) => subscriber.botToken === credentials.botToken,
+				),
+			};
+
+			activeSlackApps.push(currentSlackApp);
+		} else {
+			currentSlackApp = activeSlackApp;
+			currentSlackApp.subscribers = subscribers.filter(
+				(subscriber) => subscriber.botToken === credentials.botToken,
+			);
+
+			slackApp = activeSlackApp.app;
 		}
-
-		const slackApp = new App({
-			token: credentials.botToken,
-			signingSecret: credentials.signingSecret,
-			appToken: credentials.appToken,
-			socketMode: true,
-		});
-
-		activeSlackApps.push({
-			stop: async () => {
-				await slackApp.stop();
-			},
-			botToken: credentials.botToken,
-		});
 
 		// Helper function for non-message events
 		const handleSlackEvent = (eventType: string) => {
@@ -158,97 +178,56 @@ namespace SlackSocketConnectionManager {
 			};
 		};
 
-		// Register event handlers
-		// Use slackApp.message() for more efficient regex filtering
-		const messageSubscribers = subscribers.filter((sub) => sub.triggerEvents.includes('message'));
-
-		// Group subscribers by their message filter patterns for efficient registration
-		const patternGroups = new Map<string, Subscriber[]>();
-
-		for (const subscriber of messageSubscribers) {
-			const pattern = subscriber.messageFilterPattern?.trim() || '';
-
-			if (!patternGroups.has(pattern)) {
-				patternGroups.set(pattern, []);
-			}
-
-			const group = patternGroups.get(pattern);
-
-			if (group) {
-				group.push(subscriber);
-			}
+		if (activeSlackApp) {
+			return;
 		}
 
-		// Helper function to process message events for subscribers
-		const processMessageEvent = async (
-			groupSubscribers: Subscriber[],
-			body: unknown,
-			payload: unknown,
-			context: unknown,
-			event: unknown,
-		) => {
-			const slackEventData = event as unknown as SlackEventData;
+		slackApp.message(async ({ body, payload, context, event }) => {
+			try {
+				const slackEventData = event as unknown as SlackEventData;
 
-			for (const subscriber of groupSubscribers) {
-				// Skip bot messages check
-				if (!subscriber.shouldAllowBotMessages) {
-					if (
-						slackEventData.subtype === 'bot_message' ||
-						slackEventData.subtype === 'message_changed'
-					) {
-						continue;
-					}
-				}
-
-				// Check channel filtering
-				if (subscriber.watchedChannelIds.length > 0) {
-					if (
-						!slackEventData.channel ||
-						!subscriber.watchedChannelIds.includes(slackEventData.channel)
-					) {
-						continue;
-					}
-				}
-
-				try {
-					subscriber.emit({
-						body: body as IDataObject,
-						payload: payload as unknown as IDataObject,
-						context: context as IDataObject,
-						event: event as unknown as IDataObject,
-					});
-				} catch (error) {
-					console.error('Error emitting message event to subscriber:', error);
-				}
-			}
-		};
-
-		// Register message handlers with regex patterns for early filtering
-		for (const [pattern, groupSubscribers] of patternGroups) {
-			if (pattern) {
-				// Use slackApp.message() with regex for efficient filtering
-				const regex = getCachedRegex(pattern);
-
-				if (regex) {
-					slackApp.message(regex, async ({ body, payload, context, event }) => {
-						try {
-							await processMessageEvent(groupSubscribers, body, payload, context, event);
-						} catch (error) {
-							console.error('Error handling Slack message event with regex:', error);
+				for (const subscriber of currentSlackApp.subscribers) {
+					if (!subscriber.shouldAllowBotMessages) {
+						if (
+							slackEventData.subtype === 'bot_message' ||
+							slackEventData.subtype === 'message_changed'
+						) {
+							continue;
 						}
-					});
-				}
-			} else {
-				// Handle messages without regex filter using generic message handler
-				slackApp.message(async ({ body, payload, context, event }) => {
-					try {
-						await processMessageEvent(groupSubscribers, body, payload, context, event);
-					} catch (error) {
-						console.error('Error handling Slack message event:', error);
 					}
-				});
+
+					if (subscriber.messageFilterPattern) {
+						const regex = getCachedRegex(subscriber.messageFilterPattern);
+						if (!regex?.test(slackEventData.text || '')) {
+							continue;
+						}
+					}
+
+					// Check channel filtering
+					if (subscriber.watchedChannelIds.length > 0) {
+						if (
+							!slackEventData.channel ||
+							!subscriber.watchedChannelIds.includes(slackEventData.channel)
+						) {
+							continue;
+						}
+					}
+
+					try {
+						subscriber.emit({
+							body: body as IDataObject,
+							payload: payload as unknown as IDataObject,
+							context: context as IDataObject,
+							event: event as unknown as IDataObject,
+						});
+					} catch (error) {
+						console.error('Error emitting message event to subscriber:', error);
+					}
+				}
+			} catch (error) {
+				console.error('Error handling Slack message event:', error);
 			}
-		}
+		});
 
 		slackApp.event('app_mention', handleSlackEvent('app_mention'));
 		slackApp.event('reaction_added', handleSlackEvent('reaction_added'));
@@ -410,10 +389,6 @@ export class SlackSocketModeTrigger implements INodeType {
 				emit: (data) => this.emit([this.helpers.returnJsonArray(data)]),
 			});
 		}
-
-		await cleanupUnusedSlackConnections((error) => {
-			this.logger.error(`Error stopping unused Slack app: ${error}`);
-		});
 
 		const manualTriggerFunction = async () => {
 			try {
